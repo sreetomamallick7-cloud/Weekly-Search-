@@ -1,0 +1,26 @@
+# Virtual environment - never push this
+venv/
+.venv/
+env/
+
+# Secrets - never push this
+.env.local
+.env
+*.env
+
+# Uploaded CSV files - never push user data
+uploads/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Vercel
+.vercel
+
+# OS files
+.DS_Store
+Thumbs.db
