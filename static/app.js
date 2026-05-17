@@ -43,7 +43,7 @@ function VBarChart({ labels, data, colors, height = 240, tooltipSuffix = '' }) {
   return <div style={{ height }}><canvas ref={ref} /></div>;
 }
 
-function StackedBarChart({ categories, series, height = 260 }) {
+function StackedBarChart({ categories, series, height = 260, onClickIndex }) {
   // series: [{ label, data, color }]
   const ref = useRef(null);
   useChart(ref, () => ({
@@ -55,7 +55,8 @@ function StackedBarChart({ categories, series, height = 260 }) {
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: 'top' } },
-      scales: { x: { stacked: true, grid: { color: '#f3f4f6' } }, y: { stacked: true, ticks: { font: { size: 11 } } } }
+      scales: { x: { stacked: true, grid: { color: '#f3f4f6' } }, y: { stacked: true, ticks: { font: { size: 11 } } } },
+      onClick: (_, els) => { if (els.length && onClickIndex) onClickIndex(els[0].index, els[0].datasetIndex); }
     }
   }), [JSON.stringify(categories), JSON.stringify(series)]);
   return <div style={{ height }}><canvas ref={ref} /></div>;
@@ -376,11 +377,18 @@ function Layer2({ layer2 }) {
                 { label: 'Long-Tail', data:(d25.table||[]).map(d=>d.lt_searches||0), color:'#a855f7' },
               ]}
               height={300}
+              onClickIndex={(i, dsIndex) => {
+                const row = (d25.table||[])[i];
+                if(row) {
+                  const isLT = dsIndex === 1;
+                  setDrill({title: row.category + (isLT ? ' — Long-Tail Terms' : ' — Head Terms'), terms: isLT ? row.lt_terms : row.hd_terms});
+                }
+              }}
             />
             <DataTable maxH={240} cols={[
               { key:'category', label:'Category' },
-              { key:'hd_searches', label:'Head Searches', right:true, render:v=>fmt(v) },
-              { key:'lt_searches', label:'Long-Tail Searches', right:true, render:v=>fmt(v) },
+              { key:'hd_searches', label:'Head Searches', right:true, render:(v, r)=><button className="text-indigo-600 hover:underline" onClick={(e)=>{e.stopPropagation(); setDrill({title:r.category+' — Head Terms', terms:r.hd_terms||[]})}}>{fmt(v)}</button> },
+              { key:'lt_searches', label:'Long-Tail Searches', right:true, render:(v, r)=><button className="text-purple-600 hover:underline" onClick={(e)=>{e.stopPropagation(); setDrill({title:r.category+' — Long-Tail Terms', terms:r.lt_terms||[]})}}>{fmt(v)}</button> },
               { key:'lt_pct', label:'Long-Tail %', right:true, render:v=>fmtN(v)+'%' },
             ]} rows={d25.table||[]} />
           </Card>
@@ -515,13 +523,14 @@ function Layer2({ layer2 }) {
               colors={(d212.chart||[]).map(d=>(d.delta||0)>=0?'#8b5cf6':'#fb923c')}
               tooltipSuffix="pp"
               height={260}
+              onClickIndex={i=>{const row=(d212.chart||[])[i];if(row)setDrill({title:row.category+' — Terms', terms:row.terms||[]})}}
             />
             <DataTable maxH={240} cols={[
               { key:'category', label:'Category' },
               { key:'lt_pct_prev', label:'Prev LT %', right:true, render:v=>fmtN(v)+'%' },
               { key:'lt_pct_curr', label:'Curr LT %', right:true, render:v=>fmtN(v)+'%' },
               { key:'delta', label:'Δ pp', right:true, render:v=><GrowthPill v={v}/> },
-            ]} rows={d212.chart||[]} />
+            ]} rows={(d212.chart||[]).map(r=>({...r, _onClick:()=>setDrill({title:r.category+' — Terms', terms:r.terms||[]})}))} />
           </Card>
         )}
 
@@ -612,8 +621,8 @@ function Layer1({ layer1 }) {
         )}
         {activeSection === '1.3' && (
           <Card title="1.3 · Category-Level Search Volume Rollup" insight={d13.insight}>
-            <HBarChart labels={(d13.chart||[]).map(d=>d.category)} data={(d13.chart||[]).map(d=>d.searches)} color="#6366f1" height={280} onClickIndex={i=>{const row=(d13.chart||[])[i];if(row)setDrill({title:row.category+' — Terms',terms:[]});}} />
-            <DataTable cols={[{key:'category',label:'Category'},{key:'searches',label:'Searches',right:true,render:v=>fmt(v)},{key:'search_share',label:'Share',right:true,render:v=>fmtN(v)+'%'},{key:'revenue',label:'Revenue',right:true,render:v=>fmtCur(v)}]} rows={d13.chart||[]} />
+            <HBarChart labels={(d13.chart||[]).map(d=>d.category)} data={(d13.chart||[]).map(d=>d.searches)} color="#6366f1" height={280} onClickIndex={i=>{const row=(d13.chart||[])[i];if(row)setDrill({title:row.category+' — Terms',terms:row.terms||[]});}} />
+            <DataTable cols={[{key:'category',label:'Category'},{key:'searches',label:'Searches',right:true,render:v=>fmt(v)},{key:'search_share',label:'Share',right:true,render:v=>fmtN(v)+'%'},{key:'revenue',label:'Revenue',right:true,render:v=>fmtCur(v)}]} rows={(d13.chart||[]).map(r=>({...r, _onClick:()=>setDrill({title:r.category+' — Terms',terms:r.terms||[]})}))} />
           </Card>
         )}
         {activeSection === '1.4' && (
@@ -856,7 +865,7 @@ function Layer3({ layer3 }) {
                 </div>
               </div>
               <Card title="3.1 · Visit Rate Distribution (all terms)" insight={d31.insight}>
-                <VBarChart labels={(d31.histogram||[]).map(h => h.label)} data={(d31.histogram||[]).map(h => h.count)} colors={(d31.histogram||[]).map((h,i) => i < 3 ? '#f43f5e' : i < 6 ? '#f59e0b' : '#10b981')} height={220} tooltipSuffix=" terms" />
+                <VBarChart labels={(d31.histogram||[]).map(h => h.label)} data={(d31.histogram||[]).map(h => h.count)} colors={(d31.histogram||[]).map((h,i) => i < 3 ? '#f43f5e' : i < 6 ? '#f59e0b' : '#10b981')} height={220} tooltipSuffix=" terms" onClickIndex={i=>{const h=(d31.histogram||[])[i];if(h)setDrill({title:h.label+' Visit Rate', terms:h.terms||[]})}} />
               </Card>
               <Card title="3.1 · Bottom 20 Terms by Visit Rate (from top 100 search vol)" badge="Low = search relevance issue">
                 <DataTable cols={[
@@ -936,7 +945,6 @@ function Layer3({ layer3 }) {
                 { key:'category',         label:'Category' },
                 { key:'avg_visit_rate',   label:'Visit %', right:true, render:v=>fmtN((v||0)*100,1)+'%' },
                 { key:'avg_a2c_rate',     label:'A2C %', right:true, render:v=>fmtN((v||0)*100,2)+'%' },
-                { key:'avg_purchase_rate',label:'Purchase %', right:true, render:v=>fmtN((v||0)*100,2)+'%' },
                 { key:'avg_e2e_conv',     label:'E2E', right:true, render:v=>fmtN((v||0)*100,3)+'%' },
                 { key:'searches',         label:'Searches', right:true, render:v=>fmt(v) },
               ]} rows={d35.categories||[]} maxH={280} />
@@ -1231,7 +1239,6 @@ function DashboardHome({ summary, layer1 }) {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <KPICard title="Total Searches"    value={fmt(summary.searches)}         growth={summary.searches_growth} />
         <KPICard title="Unique Terms"      value={fmt(summary.unique_terms)} />
-        <KPICard title="Visit Rate"        value={fmtPct(summary.visit_rate)} />
         <KPICard title="A2C Rate"          value={fmtPct(summary.a2c_rate)}      sub={fmt(summary.a2c_count)+' events'} />
         <KPICard title="E2E Conversion"    value={fmtPct(summary.e2e_conv)} />
         <KPICard title="Total Orders"      value={fmt(summary.orders)} />
@@ -1243,7 +1250,7 @@ function DashboardHome({ summary, layer1 }) {
           <DoughnutChart labels={vol.map(d=>d.name)} data={vol.map(d=>d.value)} colors={['#4f46e5','#7c3aed','#a855f7','#e879f9']} onClickIndex={i=>setDrill({title:vol[i]?.name+' — Terms',terms:vol[i]?.terms||[]})} />
         </Card>
         <Card title="Top Categories by Search Volume (1.3)" badge="Click bar" insight={layer1?.['1.3']?.insight}>
-          <HBarChart labels={cat3.slice(0,10).map(d=>d.category)} data={cat3.slice(0,10).map(d=>d.searches)} color="#6366f1" height={260} onClickIndex={i=>setDrill({title:(cat3[i]?.category||'')+' — Terms',terms:[]})} />
+          <HBarChart labels={cat3.slice(0,10).map(d=>d.category)} data={cat3.slice(0,10).map(d=>d.searches)} color="#6366f1" height={260} onClickIndex={i=>setDrill({title:(cat3[i]?.category||'')+' — Terms',terms:cat3[i]?.terms||[]})} />
         </Card>
       </div>
       {drill && <DrillModal title={drill.title} terms={drill.terms} onClose={()=>setDrill(null)} />}

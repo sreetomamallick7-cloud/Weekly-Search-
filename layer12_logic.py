@@ -92,10 +92,10 @@ def run_layer1(df_curr, df_prev):
     top_term_s = float(sorted_df.iloc[0]['searches']) if len(sorted_df) > 0 else 0
     res['1.2'] = {
         'chart': [
-            {'name': 'Top 10',     'value': t10,  'terms': sorted_df.iloc[:10][['term_norm','searches']].to_dict(orient='records')},
-            {'name': 'Top 11–50',  'value': t50,  'terms': sorted_df.iloc[10:50][['term_norm','searches']].to_dict(orient='records')},
-            {'name': 'Top 51–100', 'value': t100, 'terms': sorted_df.iloc[50:100][['term_norm','searches']].to_dict(orient='records')},
-            {'name': 'Long Tail',  'value': max(0, lt), 'terms': sorted_df.iloc[100:][['term_norm','searches']].to_dict(orient='records')},
+            {'name': 'Top 10',     'value': t10,  'terms': sorted_df.iloc[:10][['term_norm','searches','a2c_count','orders']].to_dict(orient='records')},
+            {'name': 'Top 11–50',  'value': t50,  'terms': sorted_df.iloc[10:50][['term_norm','searches','a2c_count','orders']].to_dict(orient='records')},
+            {'name': 'Top 51–100', 'value': t100, 'terms': sorted_df.iloc[50:100][['term_norm','searches','a2c_count','orders']].to_dict(orient='records')},
+            {'name': 'Long Tail',  'value': max(0, lt), 'terms': sorted_df.iloc[100:][['term_norm','searches','a2c_count','orders']].to_dict(orient='records')},
         ],
         'insight': _insight_concentration(top10_pct, top_term, _safe_pct(top_term_s, total))
     }
@@ -113,7 +113,12 @@ def run_layer1(df_curr, df_prev):
         gap = 'monetization gap' if s_share - rev_share > 10 else 'healthy conversion alignment'
         insight_13 = (f"'{top_cat['category']}' captures {s_share:.1f}% of all search demand "
                       f"but generates only {rev_share:.1f}% of revenue, indicating a {gap}.")
-    res['1.3'] = {'chart': cat.to_dict(orient='records'), 'insight': insight_13}
+    chart_13 = []
+    for _, r in cat.iterrows():
+        sub = df_curr[df_curr['category'] == r['category']].sort_values('searches', ascending=False).head(30)
+        chart_13.append({**r.to_dict(), 'terms': sub[['term_norm','searches','a2c_count','orders']].to_dict(orient='records')})
+        
+    res['1.3'] = {'chart': chart_13, 'insight': insight_13}
 
     # -- 1.4 Category Search Share ----------------------------------------------
     cat14 = cat.copy().head(9)
@@ -373,7 +378,15 @@ def run_layer2(df_curr, df_prev):
     ).reset_index()
     top_lt = lt_cat.sort_values('lt_pct', ascending=False).iloc[0].to_dict() if len(lt_cat) > 0 else None
     # Attach terms to each row for drill-down
-    lt_rows = [{**r.to_dict(), 'terms': _cat_terms(r['category'])} for _, r in lt_cat.iterrows()]
+    lt_rows = []
+    for _, r in lt_cat.iterrows():
+        sub_lt = df_curr[(df_curr['category'] == r['category']) & (df_curr['is_long_tail'] == True)].sort_values('searches', ascending=False).head(30)
+        sub_hd = df_curr[(df_curr['category'] == r['category']) & (df_curr['is_long_tail'] == False)].sort_values('searches', ascending=False).head(30)
+        lt_rows.append({
+            **r.to_dict(),
+            'lt_terms': sub_lt[['term_norm','searches','a2c_count','orders']].to_dict(orient='records'),
+            'hd_terms': sub_hd[['term_norm','searches','a2c_count','orders']].to_dict(orient='records')
+        })
     res['2.5'] = {
         'table': lt_rows,
         'insight': (f"'{top_lt['category']}' at {top_lt['lt_pct']:.1f}% long-tail = most specific buyer intent "
@@ -540,8 +553,11 @@ def run_layer2(df_curr, df_prev):
     lt_exp['delta'] = (lt_exp['lt_pct_curr'] - lt_exp['lt_pct_prev']).round(2)
     lt_exp = lt_exp.sort_values('delta', ascending=False)
     top_lt_exp = lt_exp.iloc[0] if len(lt_exp) > 0 else None
+    lt_exp_chart = []
+    for _, r in lt_exp.iterrows():
+        lt_exp_chart.append({**r.to_dict(), 'terms': _cat_terms(r['category'])})
     res['2.12'] = {
-        'chart': lt_exp.to_dict(orient='records'),
+        'chart': lt_exp_chart,
         'insight': (f"'{top_lt_exp['category']}' shows the highest long-tail expansion at +{top_lt_exp['delta']:.1f}pp. "
                     f"When long-tail% increases, demand is maturing — buyers are becoming more specific." if top_lt_exp is not None else '')
     }
@@ -603,9 +619,23 @@ def run_layer3(df_curr, df_prev):
     avg_vr = float(df['visit_rate'].mean())
     vr_clipped = df['visit_rate'].clip(0, 1)
     hist_counts, _ = np.histogram(vr_clipped, bins=[i/10 for i in range(11)])
-    hist_labels = [f"{i*10}–{(i+1)*10}%" for i in range(10)]
+    histogram = []
+    for i in range(10):
+        low = i / 10.0
+        high = (i + 1) / 10.0
+        # include upper bound for the last bin
+        if i == 9:
+            mask = (vr_clipped >= low) & (vr_clipped <= high)
+        else:
+            mask = (vr_clipped >= low) & (vr_clipped < high)
+        sub = df[mask].sort_values('searches', ascending=False).head(30)
+        histogram.append({
+            'label': f"{i*10}–{(i+1)*10}%",
+            'count': int(mask.sum()),
+            'terms': sub[['term_norm','searches','a2c_count','orders','visit_rate','category']].to_dict(orient='records')
+        })
     res['3.1'] = {
-        'histogram': [{'label': l, 'count': int(c)} for l, c in zip(hist_labels, hist_counts)],
+        'histogram': histogram,
         'bottom20': top100.sort_values('visit_rate').head(20)[
             ['term_norm','searches','search_visits','visit_rate','category']].to_dict(orient='records'),
         'avg_visit_rate': round(avg_vr, 4),
@@ -713,7 +743,7 @@ def run_layer3(df_curr, df_prev):
     }
     res['3.9'] = {
         'stage_counts': stage_counts.to_dict(orient='records'),
-        'terms': df[['term_norm','searches','visit_rate','a2c_rate_v','purchase_rate','e2e_conv','funnel_stage','category']].sort_values('searches', ascending=False).head(100).to_dict(orient='records'),
+        'terms': df[['term_norm','searches','visit_rate','a2c_rate_v','purchase_rate','e2e_conv','funnel_stage','category','a2c_count','orders']].sort_values('searches', ascending=False).head(100).to_dict(orient='records'),
         'insight': (f"The most common failure is '{top_stage}' affecting {int((df['funnel_stage']==top_stage).sum())} terms. "
                    f"This points to a systemic {stage_desc.get(top_stage, '')} problem rather than individual term issues. "
                    f"(Thresholds: Stage 1 = <25% Visit Rate; Stage 2 = <5% A2C/Visit; Stage 3 = <1% Purch/A2C).")
