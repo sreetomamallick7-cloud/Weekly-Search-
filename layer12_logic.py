@@ -683,8 +683,15 @@ def run_layer3(df_curr, df_prev):
     ).reset_index().fillna(0)
     best_cat  = cat_f.sort_values('avg_e2e_conv', ascending=False).iloc[0].to_dict() if len(cat_f) > 0 else None
     worst_cat = cat_f.sort_values('avg_e2e_conv').iloc[0].to_dict() if len(cat_f) > 0 else None
+    cat_f_chart = []
+    for _, r in cat_f.sort_values('searches', ascending=False).iterrows():
+        sub = df[df['category'] == r['category']].sort_values('searches', ascending=False).head(100)
+        cat_f_chart.append({
+            **r.to_dict(), 
+            'terms': sub[['term_norm','searches','visit_rate','a2c_rate_v','purchase_rate','e2e_conv','category','a2c_count','orders']].to_dict(orient='records')
+        })
     res['3.5'] = {
-        'categories': cat_f.sort_values('searches', ascending=False).to_dict(orient='records'),
+        'categories': cat_f_chart,
         'insight': (f"'{best_cat['category']}' has the highest full-funnel efficiency "
                    f"(E2E {best_cat['avg_e2e_conv']*100:.3f}%). "
                    f"'{worst_cat['category']}' has the worst. Apply top-category merchandising patterns to underperformers."

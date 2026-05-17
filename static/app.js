@@ -28,7 +28,7 @@ function HBarChart({ labels, data, colors, height = 280, onClickIndex, tooltipSu
   return <div style={{ height }}><canvas ref={ref} /></div>;
 }
 
-function VBarChart({ labels, data, colors, height = 240, tooltipSuffix = '' }) {
+function VBarChart({ labels, data, colors, height = 240, tooltipSuffix = '', onClickIndex }) {
   const ref = useRef(null);
   const bg = colors || labels.map(() => '#4f46e5');
   useChart(ref, () => ({
@@ -37,7 +37,8 @@ function VBarChart({ labels, data, colors, height = 240, tooltipSuffix = '' }) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ' ' + ctx.parsed.y.toFixed(2) + tooltipSuffix } } },
-      scales: { x: { ticks: { maxRotation: 40, font: { size: 11 } } }, y: { grid: { color: '#f3f4f6' } } }
+      scales: { x: { ticks: { maxRotation: 40, font: { size: 11 } } }, y: { grid: { color: '#f3f4f6' } } },
+      onClick: (_, els) => { if (els.length && onClickIndex) onClickIndex(els[0].index); }
     }
   }), [JSON.stringify(labels), JSON.stringify(data)]);
   return <div style={{ height }}><canvas ref={ref} /></div>;
@@ -947,7 +948,7 @@ function Layer3({ layer3 }) {
                 { key:'avg_a2c_rate',     label:'A2C %', right:true, render:v=>fmtN((v||0)*100,2)+'%' },
                 { key:'avg_e2e_conv',     label:'E2E', right:true, render:v=>fmtN((v||0)*100,3)+'%' },
                 { key:'searches',         label:'Searches', right:true, render:v=>fmt(v) },
-              ]} rows={d35.categories||[]} maxH={280} />
+              ]} rows={(d35.categories||[]).map(r=>({...r, _onClick:()=>setDrill({title:r.category+' — Terms', terms:r.terms||[]})}))} maxH={280} />
             </Card>
           );
         })()}
