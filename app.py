@@ -66,9 +66,11 @@ def safe_read_csv(file_obj, filename):
         
     # Standardize column names (case insensitive)
     col_map = {
-        'search term': 'search_term',
+        'search term': 'query',
+        'search_term': 'query',
         'query': 'query',
-        'event count': 'a2c_count'
+        'event count': 'a2c_count',
+        'event_count': 'a2c_count'
     }
     df.rename(columns=lambda x: col_map.get(str(x).strip().strip('"').lower(), str(x).strip().strip('"')), inplace=True)
     

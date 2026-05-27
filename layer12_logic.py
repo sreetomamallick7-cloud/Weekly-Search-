@@ -78,8 +78,16 @@ def run_layer1(df_curr, df_prev):
     total = df_curr['searches'].sum()
 
     # -- 1.1 Top 50 Terms -------------------------------------------------------
-    top50 = df_curr.sort_values('searches', ascending=False).head(50)
-    res['1.1'] = top50[['term_norm', 'searches', 'category', 'a2c_count', 'orders']].to_dict(orient='records')
+    top50 = df_curr.sort_values('searches', ascending=False).head(50).copy()
+    if df_prev is not None and not df_prev.empty:
+        prev_searches = df_prev[['term_norm', 'searches']].rename(columns={'searches': 'prev_searches'})
+        top50 = pd.merge(top50, prev_searches, on='term_norm', how='left').fillna({'prev_searches': 0})
+        top50['searches_growth'] = ((top50['searches'] - top50['prev_searches']) / (top50['prev_searches'] + 1)) * 100
+        top50['searches_growth'] = top50['searches_growth'].round(2)
+    else:
+        top50['prev_searches'] = 0.0
+        top50['searches_growth'] = None
+    res['1.1'] = top50[['term_norm', 'searches', 'prev_searches', 'searches_growth', 'category', 'a2c_count', 'orders']].to_dict(orient='records')
 
     # -- 1.2 Volume Concentration -----------------------------------------------
     sorted_df = df_curr.sort_values('searches', ascending=False).reset_index(drop=True)
@@ -164,10 +172,21 @@ def run_layer1(df_curr, df_prev):
         mask = df_curr['term_norm'].apply(lambda t: any(k in t for k in keywords))
         sub  = df_curr[mask]
         if not sub.empty:
+            if df_prev is not None and not df_prev.empty:
+                mask_prev = df_prev['term_norm'].apply(lambda t: any(k in t for k in keywords))
+                sub_prev = df_prev[mask_prev]
+                prev_s = float(sub_prev['searches'].sum())
+                growth = round(((sub['searches'].sum() - prev_s) / (prev_s + 1)) * 100, 2)
+            else:
+                prev_s = 0.0
+                growth = None
+
             rows.append({
                 'occasion': occasion,
                 'term_count': int(len(sub)),
                 'searches':   float(sub['searches'].sum()),
+                'prev_searches': prev_s,
+                'growth': growth,
                 'a2c_count':  float(sub['a2c_count'].sum()),
                 'orders': float(sub['orders'].sum()),
                 'terms': sub.sort_values('searches', ascending=False).head(10)[['term_norm','searches']].to_dict(orient='records')
@@ -408,7 +427,9 @@ def run_layer2(df_curr, df_prev):
     }
 
     # ── 2.7 Men's Jewelry Intent ─────────────────────────────────────────────────
-    men_mask = df_curr['term_norm'].apply(lambda t: any(k in t for k in MEN_KEYWORDS))
+    men_mask = df_curr['term_norm'].apply(
+        lambda t: any(k in t.lower() for k in MEN_KEYWORDS) and not any(w in t.lower() for w in ['women', 'womens', 'woman'])
+    )
     men_df   = df_curr[men_mask]
     men_s    = float(men_df['searches'].sum())
     men_conv = _safe_pct(men_df['orders'].sum(), men_s)
@@ -590,8 +611,30 @@ def run_kpis(df_curr, df_prev):
     }
 
     if df_prev is not None and not df_prev.empty:
-        p = float(df_prev['searches'].sum())
-        kpis['searches_growth'] = round(((searches - p) / (p + 1)) * 100, 2)
+        p_searches = float(df_prev['searches'].sum())
+        p_visits   = float(df_prev['search_visits'].sum()) if 'search_visits' in df_prev.columns else 0
+        p_a2cs     = float(df_prev['a2c_count'].sum()) if 'a2c_count' in df_prev.columns else 0
+        p_orders   = float(df_prev['orders'].sum()) if 'orders' in df_prev.columns else 0
+        p_revenue  = float(df_prev['usd_revenue'].sum()) if 'usd_revenue' in df_prev.columns else 0
+
+        p_a2c_rate = p_a2cs / p_searches if p_searches > 0 else 0
+        p_e2e_conv = p_orders / p_searches if p_searches > 0 else 0
+        p_rev_per_search = p_revenue / p_searches if p_searches > 0 else 0
+
+        def calc_growth(curr, prev):
+            if prev <= 0:
+                return 0.0 if curr <= 0 else 100.0
+            return round(((curr - prev) / prev) * 100, 2)
+
+        kpis['searches_growth'] = calc_growth(searches, p_searches)
+        kpis['a2c_rate_growth'] = calc_growth(kpis['a2c_rate'], p_a2c_rate)
+        kpis['e2e_conv_growth'] = calc_growth(kpis['e2e_conv'], p_e2e_conv)
+        kpis['orders_growth'] = calc_growth(orders, p_orders)
+        kpis['revenue_growth'] = calc_growth(revenue, p_revenue)
+        kpis['rev_per_search_growth'] = calc_growth(kpis['rev_per_search'], p_rev_per_search)
+        
+        p_ut = len(df_prev)
+        kpis['unique_terms_growth'] = round(((len(df_curr) - p_ut) / (p_ut + 1)) * 100, 2)
 
     return kpis
 
@@ -786,17 +829,19 @@ def run_layer3(df_curr, df_prev):
 
     # ── 3.11 Visit Rate Change ────────────────────────────────────────────────
     merged['vr_delta'] = (merged['visit_rate'] - merged['prev_vr']).round(4)
+    df_311 = merged[merged['searches'] >= 200]
     res['3.11'] = {
-        'improvers': merged.sort_values('vr_delta', ascending=False).head(15)[['term_norm','prev_vr','visit_rate','vr_delta','searches','category']].to_dict(orient='records'),
-        'degraders': merged.sort_values('vr_delta').head(15)[['term_norm','prev_vr','visit_rate','vr_delta','searches','category']].to_dict(orient='records'),
+        'improvers': df_311.sort_values('vr_delta', ascending=False).head(15)[['term_norm','prev_vr','visit_rate','vr_delta','searches','category']].to_dict(orient='records'),
+        'degraders': df_311.sort_values('vr_delta').head(15)[['term_norm','prev_vr','visit_rate','vr_delta','searches','category']].to_dict(orient='records'),
         'insight': "Visit rate improved → search relevance improved. Degraded → results may have changed or become less relevant."
     }
 
     # ── 3.12 A2C Rate Change ──────────────────────────────────────────────────
     merged['a2c_delta'] = (merged['a2c_rate_s'] - merged['prev_a2c_s']).round(4)
+    df_312 = merged[merged['searches'] >= 200]
     res['3.12'] = {
-        'improvers': merged.sort_values('a2c_delta', ascending=False).head(15)[['term_norm','prev_a2c_s','a2c_rate_s','a2c_delta','searches','category']].to_dict(orient='records'),
-        'degraders': merged.sort_values('a2c_delta').head(15)[['term_norm','prev_a2c_s','a2c_rate_s','a2c_delta','searches','category']].to_dict(orient='records'),
+        'improvers': df_312.sort_values('a2c_delta', ascending=False).head(15)[['term_norm','prev_a2c_s','a2c_rate_s','a2c_delta','searches','category']].to_dict(orient='records'),
+        'degraders': df_312.sort_values('a2c_delta').head(15)[['term_norm','prev_a2c_s','a2c_rate_s','a2c_delta','searches','category']].to_dict(orient='records'),
         'insight': "A2C rate improving = growing product-market fit. Declining despite stable search = something changed on product/pricing."
     }
 

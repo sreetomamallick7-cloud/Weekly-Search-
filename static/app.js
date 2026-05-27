@@ -166,12 +166,12 @@ function Card({ title, badge, children, insight, insightType }) {
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
 function KPICard({ title, value, growth, sub }) {
-  const up = growth > 0;
+  const up = growth >= 0;
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 hover:shadow-md transition-shadow">
       <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-2">{title}</p>
       <p className="text-2xl font-bold text-gray-900 mb-1">{value}</p>
-      {growth !== undefined && <span className={`text-xs font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}>{up ? '▲' : '▼'} {Math.abs(growth).toFixed(1)}% MoM</span>}
+      {growth !== undefined && growth !== null && <span className={`text-xs font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}>{up ? '▲' : '▼'} {Math.abs(growth).toFixed(1)}% MoM</span>}
       {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
     </div>
   );
@@ -212,16 +212,92 @@ function DrillModal({ title, terms, onClose }) {
 }
 
 // ─── Data Table ───────────────────────────────────────────────────────────────
+function SortIcon({ active, asc }) {
+  return (
+    <span className={`inline-flex flex-col ml-1.5 justify-center ${active ? 'text-indigo-600' : 'text-gray-300'}`} style={{ height: '14px', verticalAlign: 'middle' }}>
+      <svg className="w-2 h-2" fill="currentColor" viewBox="0 0 24 24" style={{ marginBottom: '-2px', opacity: active && !asc ? 0.3 : 1 }}>
+        <path d="M12 6l-6 6h12z" />
+      </svg>
+      <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 24 24" style={{ marginTop: '-2px', opacity: active && asc ? 0.3 : 1 }}>
+        <path d="M12 18l-6-6h12z" />
+      </svg>
+    </span>
+  );
+}
+
 function DataTable({ cols, rows, maxH = 340 }) {
+  const [sortKey, setSortKey] = useState(null);
+  const [sortAsc, setSortAsc] = useState(true);
+
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortKey(key);
+      setSortAsc(false); // default to descending (highest first) for metrics
+    }
+  };
+
+  const sortedRows = React.useMemo(() => {
+    if (!rows || rows.length === 0) return [];
+    if (!sortKey) return rows;
+
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+      let valA = a[sortKey];
+      let valB = b[sortKey];
+
+      if (valA === undefined || valA === null) {
+        if (valB === undefined || valB === null) return 0;
+        return 1;
+      }
+      if (valB === undefined || valB === null) return -1;
+
+      if (typeof valA === 'boolean' && typeof valB === 'boolean') {
+        return sortAsc ? (valA ? 1 : -1) : (valA ? -1 : 1);
+      }
+
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        return sortAsc 
+          ? valA.localeCompare(valB) 
+          : valB.localeCompare(valA);
+      }
+
+      if (valA < valB) return sortAsc ? -1 : 1;
+      if (valA > valB) return sortAsc ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
+  }, [rows, sortKey, sortAsc]);
+
   if (!rows || rows.length === 0) return <p className="text-sm text-gray-400 py-6 text-center">No data</p>;
   return (
     <div className="overflow-auto rounded border border-gray-100" style={{ maxHeight: maxH }}>
       <table className="min-w-full text-xs">
         <thead className="sticky top-0 bg-gray-50">
-          <tr>{cols.map(c => <th key={c.key} className={`px-3 py-2 font-semibold text-gray-500 ${c.right ? 'text-right' : 'text-left'}`}>{c.label}</th>)}</tr>
+          <tr>
+            {cols.map(c => {
+              const isSortable = !!c.sortable;
+              return (
+                <th
+                  key={c.key}
+                  onClick={() => isSortable && handleSort(c.key)}
+                  className={`px-3 py-2 font-semibold text-gray-500 select-none ${c.right ? 'text-right' : 'text-left'} ${
+                    isSortable ? 'cursor-pointer hover:bg-gray-100 hover:text-gray-900 transition-colors' : ''
+                  }`}
+                >
+                  <div className={`inline-flex items-center ${c.right ? 'justify-end w-full' : ''}`}>
+                    <span>{c.label}</span>
+                    {isSortable && <SortIcon active={sortKey === c.key} asc={sortAsc} />}
+                  </div>
+                </th>
+              );
+            })}
+          </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {sortedRows.map((r, i) => (
             <tr key={i} className="border-t hover:bg-indigo-50 transition-colors cursor-pointer" onClick={() => r._onClick && r._onClick()}>
               {cols.map(c => (
                 <td key={c.key} className={`px-3 py-2 ${c.right ? 'text-right tabular-nums' : ''}`}>
@@ -235,6 +311,7 @@ function DataTable({ cols, rows, maxH = 340 }) {
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LAYER 2 COMPONENT
@@ -360,7 +437,7 @@ function Layer2({ layer2 }) {
               { key:'category', label:'Category' },
               { key:'search_share', label:'Search Share %', right:true, render:v=>fmtN(v)+'%' },
               { key:'a2c_share', label:'A2C Share %', right:true, render:v=>fmtN(v)+'%' },
-              { key:'over_index', label:'Status', render:v=>v
+              { key:'over_index', label:'Status', sortable:true, render:v=>v
                 ? <span className="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded font-semibold">Over-indexing ↑</span>
                 : <span className="text-xs px-2 py-0.5 bg-rose-100 text-rose-700 rounded font-semibold">Under-indexing ↓</span>
               },
@@ -612,7 +689,17 @@ function Layer1({ layer1 }) {
         {activeSection === '1.1' && (
           <Card title="1.1 · Top 50 Terms by Search Volume" badge="Click bar to drill" insight="The top 10 terms are your highest-intent queries. Prioritise catalog depth and relevance here first.">
             <HBarChart labels={d11.slice(0,20).map(d=>d.term_norm)} data={d11.slice(0,20).map(d=>d.searches)} color="#4f46e5" height={360} onClickIndex={i=>setDrill({title:d11[i]?.term_norm,terms:[d11[i]]})} />
-            <DataTable maxH={280} cols={termCols} rows={d11.map(r=>({...r,_onClick:()=>setDrill({title:r.term_norm, terms:[r]})}))} />
+            <DataTable maxH={280} cols={[
+              { key:'term_norm', label:'Term' },
+              { key:'searches', label:'Searches', right:true, render:v=>fmt(v) },
+              ...(hasBoth ? [
+                { key:'prev_searches', label:'Prev Searches', right:true, render:v=>fmt(v) },
+                { key:'searches_growth', label:'MoM %', right:true, sortable:true, render:v=><GrowthPill v={v} /> }
+              ] : []),
+              { key:'a2c_count', label:'A2C', right:true, render:v=>fmt(v) },
+              { key:'orders', label:'Orders', right:true, render:v=>fmt(v) },
+              { key:'category', label:'Category' },
+            ]} rows={d11.map(r=>({...r,_onClick:()=>setDrill({title:r.term_norm, terms:[r]})}))} />
           </Card>
         )}
         {activeSection === '1.2' && (
@@ -651,7 +738,12 @@ function Layer1({ layer1 }) {
                 <div key={i} className="border border-gray-200 rounded-lg overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2 bg-gray-50 cursor-pointer hover:bg-indigo-50" onClick={()=>setDrill({title:cluster.occasion+' — Terms',terms:cluster.terms||[]})}>
                     <span className="font-semibold text-sm text-gray-800">{cluster.occasion}</span>
-                    <div className="flex gap-4 text-xs text-gray-500"><span>🔍 {fmt(cluster.searches)}</span><span>🛒 {fmt(cluster.a2c_count)}</span><span>✅ {fmt(cluster.orders)}</span><span className="text-indigo-600 text-xs">drill →</span></div>
+                    <div className="flex gap-4 text-xs text-gray-500 items-center">
+                      <span className="flex items-center gap-1.5">🔍 {fmt(cluster.searches)} {hasBoth && <GrowthPill v={cluster.growth} />}</span>
+                      <span>🛒 {fmt(cluster.a2c_count)}</span>
+                      <span>✅ {fmt(cluster.orders)}</span>
+                      <span className="text-indigo-600 text-xs font-semibold ml-2">drill →</span>
+                    </div>
                   </div>
                   <div className="px-4 py-2 flex flex-wrap gap-2">{(cluster.terms||[]).map((t,j)=><span key={j} className="bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded-full">{t.term_norm} ({fmt(t.searches)})</span>)}</div>
                 </div>
@@ -676,7 +768,7 @@ function Layer1({ layer1 }) {
         )}
         {activeSection === '1.9' && (
           <Card title="1.9 · Rising Terms (>20% MoM, ≥200 searches)" insight={d19.insight} insightType="success">
-            <DataTable cols={[{key:'term_norm',label:'Term'},{key:'prev_searches',label:'Prev',right:true,render:v=>fmt(v)},{key:'searches',label:'Current',right:true,render:v=>fmt(v)},{key:'growth',label:'Growth',right:true,render:v=><GrowthPill v={v}/>},{key:'a2c_count',label:'A2C',right:true,render:v=>fmt(v)},{key:'category',label:'Category'}]} rows={d19.terms||[]} />
+            <DataTable cols={[{key:'term_norm',label:'Term'},{key:'prev_searches',label:'Prev',right:true,render:v=>fmt(v)},{key:'searches',label:'Current',right:true,sortable:true,render:v=>fmt(v)},{key:'growth',label:'Growth',right:true,render:v=><GrowthPill v={v}/>},{key:'a2c_count',label:'A2C',right:true,render:v=>fmt(v)},{key:'category',label:'Category'}]} rows={d19.terms||[]} />
           </Card>
         )}
         {activeSection === '1.10' && (
@@ -904,7 +996,7 @@ function Layer3({ layer3 }) {
                 { key:'term_norm',    label:'Term' },
                 { key:'searches',     label:'Searches', right:true, render:v=>fmt(v) },
                 { key:'a2c_count',    label:'A2C', right:true, render:v=>fmt(v) },
-                { key:'orders',   label:'Orders', right:true, render:v=>fmt(v) },
+                { key:'orders',   label:'Orders', right:true, sortable:true, render:v=>fmt(v) },
                 { key:'purchase_rate',label:'Purchase Rate', right:true, render:v=><span className={`text-xs font-semibold ${(v||0)>0.5?'text-emerald-600':(v||0)>0.2?'text-amber-600':'text-rose-600'}`}>{fmtN((v||0)*100,1)}%</span> },
                 catCol(d33.terms||[]),
               ]} rows={d33.terms||[]} />
@@ -1089,7 +1181,7 @@ function Layer3({ layer3 }) {
             { key:'prev_vr',   label:'Prev Visit %', right:true, render:v=>fmtN((v||0)*100,1)+'%' },
             { key:'visit_rate',label:'Curr Visit %', right:true, render:v=>fmtN((v||0)*100,1)+'%' },
             { key:'vr_delta',  label:'Δ pp', right:true, render:v=><DeltaRatePill v={v} /> },
-            { key:'searches',  label:'Searches', right:true, render:v=>fmt(v) },
+            { key:'searches',  label:'Searches', right:true, sortable:true, render:v=>fmt(v) },
             catCol(allRows311),
           ];
           return (
@@ -1113,7 +1205,7 @@ function Layer3({ layer3 }) {
             { key:'prev_a2c_s', label:'Prev A2C %', right:true, render:v=>fmtN((v||0)*100,2)+'%' },
             { key:'a2c_rate_s', label:'Curr A2C %', right:true, render:v=>fmtN((v||0)*100,2)+'%' },
             { key:'a2c_delta',  label:'Δ pp', right:true, render:v=><DeltaRatePill v={v} /> },
-            { key:'searches',   label:'Searches', right:true, render:v=>fmt(v) },
+            { key:'searches',   label:'Searches', right:true, sortable:true, render:v=>fmt(v) },
             catCol(allRows312),
           ];
           return (
@@ -1239,12 +1331,11 @@ function DashboardHome({ summary, layer1 }) {
       <h2 className="text-lg font-bold text-gray-900">📊 Overview Scorecard</h2>
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <KPICard title="Total Searches"    value={fmt(summary.searches)}         growth={summary.searches_growth} />
-        <KPICard title="Unique Terms"      value={fmt(summary.unique_terms)} />
-        <KPICard title="A2C Rate"          value={fmtPct(summary.a2c_rate)}      sub={fmt(summary.a2c_count)+' events'} />
-        <KPICard title="E2E Conversion"    value={fmtPct(summary.e2e_conv)} />
-        <KPICard title="Total Orders"      value={fmt(summary.orders)} />
-        <KPICard title="Total Revenue"     value={fmtCur(summary.revenue)} />
-        <KPICard title="Revenue / Search"  value={fmtCur(summary.rev_per_search)} />
+        <KPICard title="A2C Rate"          value={fmtPct(summary.a2c_rate)}      growth={summary.a2c_rate_growth}      sub={fmt(summary.a2c_count)+' events'} />
+        <KPICard title="E2E Conversion"    value={fmtPct(summary.e2e_conv)}      growth={summary.e2e_conv_growth} />
+        <KPICard title="Total Orders"      value={fmt(summary.orders)}           growth={summary.orders_growth} />
+        <KPICard title="Total Revenue"     value={fmtCur(summary.revenue)}       growth={summary.revenue_growth} />
+        <KPICard title="Revenue / Search"  value={fmtCur(summary.rev_per_search)} growth={summary.rev_per_search_growth} />
       </div>
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
         <Card title="Search Volume Concentration (1.2)" badge="Click slice" insight={layer1?.['1.2']?.insight}>
