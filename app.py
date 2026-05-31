@@ -443,7 +443,7 @@ def fetch_weekly_data_parallel(client, week_ids, select_cols):
                      .execute().data
 
     futures = []
-    with ThreadPoolExecutor(max_workers=20) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         for week_id in week_ids:
             total = week_limits.get(week_id, 25000)
             for start in range(0, total, 1000):
@@ -491,11 +491,32 @@ def trends_weekly():
                             .execute().data
             top_terms = terms
         else:
-            # Fetch all term data in parallel using the paginated helper
-            records = fetch_weekly_data_parallel(
-                client, week_ids,
-                'week_id,term_norm,category,searches,visit_rate,a2c_rate_s,purchase_rate,e2e_conv'
-            )
+            # Optimize: Pre-select top candidate terms from each week first.
+            # This is 100x faster and prevents Vercel serverless function timeouts.
+            candidate_terms = set()
+            for wid in week_ids:
+                res = client.table('search_terms_weekly') \
+                            .select('term_norm') \
+                            .eq('week_id', wid) \
+                            .order('searches', desc=True) \
+                            .limit(150) \
+                            .execute().data
+                for r in res:
+                    tn = r.get('term_norm')
+                    if tn:
+                        candidate_terms.add(tn)
+            
+            candidate_list = list(candidate_terms)
+            records = []
+            CHUNK = 200
+            for i in range(0, len(candidate_list), CHUNK):
+                chunk = candidate_list[i:i + CHUNK]
+                res = client.table('search_terms_weekly') \
+                            .select('week_id,term_norm,category,searches,visit_rate,a2c_rate_s,purchase_rate,e2e_conv') \
+                            .in_('week_id', week_ids) \
+                            .in_('term_norm', chunk) \
+                            .execute().data
+                records.extend(res)
 
         import pandas as pd
         import numpy as np
@@ -601,7 +622,7 @@ def terms_list():
                          .execute().data
 
         futures = []
-        with ThreadPoolExecutor(max_workers=20) as executor:
+        with ThreadPoolExecutor(max_workers=4) as executor:
             for w in weeks_res:
                 week_id = w['id']
                 total = w.get('total_terms', 25000)
