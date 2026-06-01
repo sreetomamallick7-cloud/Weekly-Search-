@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 import os
 import io
@@ -8,7 +8,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
 
 # Load SerpApi key from .env.local
-load_dotenv(os.path.join(os.getcwd(), '.env.local'))
+load_dotenv(os.path.join(os.getcwd(), '.env.local'), override=True)
 
 import layer12_logic
 import layer4_trends_logic
@@ -340,7 +340,9 @@ def admin_page():
 @app.route('/admin/upload-week', methods=['POST'])
 def admin_upload_week():
     # Password check
-    if request.form.get('password') != os.environ.get('ADMIN_PASSWORD'):
+    password_input = (request.form.get('password') or '').strip()
+    admin_password = (os.environ.get('ADMIN_PASSWORD') or '').strip()
+    if password_input != admin_password:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
 
     label            = request.form.get('label', '').strip()
@@ -595,7 +597,9 @@ def trends_weekly():
 @app.route('/admin/delete-week/<int:week_id>', methods=['DELETE'])
 def admin_delete_week(week_id):
     body = request.get_json(silent=True) or {}
-    if body.get('password') != os.environ.get('ADMIN_PASSWORD'):
+    password_input = (body.get('password') or '').strip()
+    admin_password = (os.environ.get('ADMIN_PASSWORD') or '').strip()
+    if password_input != admin_password:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     try:
         client = supabase_db.get_client()

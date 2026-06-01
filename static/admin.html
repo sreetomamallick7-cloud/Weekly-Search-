@@ -68,9 +68,24 @@
       btn.disabled = true;
       status.style.display = 'none';
 
+      let pwd = document.getElementById('pwd').value.trim();
+      if (!pwd) {
+        pwd = prompt("Enter admin password to upload week:");
+        if (pwd === null) {
+          btn.disabled = false;
+          return;
+        }
+        if (pwd.trim() === '') {
+          alert('Password cannot be empty.');
+          btn.disabled = false;
+          return;
+        }
+        document.getElementById('pwd').value = pwd;
+      }
+
       const fd = new FormData();
-      fd.append('password',        document.getElementById('pwd').value);
-      fd.append('label',           document.getElementById('label').value);
+      fd.append('password',        pwd);
+      fd.append('label',           document.getElementById('label').value.trim());
       fd.append('week_start_date', document.getElementById('date').value);
       const sf = document.getElementById('search_file').files[0];
       const af = document.getElementById('a2c_file').files[0];
