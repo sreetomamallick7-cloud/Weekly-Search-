@@ -116,14 +116,40 @@
     }
 
     async function deleteWeek(id, label) {
-      const pwd = document.getElementById('pwd').value;
+      let pwd = document.getElementById('pwd').value;
+      if (!pwd) {
+        pwd = prompt(`Enter admin password to delete "${label}":`);
+        if (pwd === null) return; // User clicked Cancel
+        if (pwd.trim() === '') {
+          alert('Password cannot be empty.');
+          return;
+        }
+      }
       if (!confirm(`Delete "${label}"? This cannot be undone.`)) return;
-      await fetch(`/admin/delete-week/${id}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwd })
-      });
-      loadWeeks();
+      
+      try {
+        const res = await fetch(`/admin/delete-week/${id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
+        
+        let data;
+        try {
+          data = await res.json();
+        } catch (err) {
+          data = {};
+        }
+
+        if (res.ok && data.status === 'success') {
+          document.getElementById('pwd').value = pwd;
+          loadWeeks();
+        } else {
+          alert('Error: ' + (data.message || 'Failed to delete week. Make sure the password is correct.'));
+        }
+      } catch (e) {
+        alert('Network error: ' + e.message);
+      }
     }
 
     loadWeeks();

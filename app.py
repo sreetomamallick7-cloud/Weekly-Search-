@@ -594,7 +594,8 @@ def trends_weekly():
 # ── Admin: delete a week ──────────────────────────────────────────────
 @app.route('/admin/delete-week/<int:week_id>', methods=['DELETE'])
 def admin_delete_week(week_id):
-    if request.json.get('password') != os.environ.get('ADMIN_PASSWORD'):
+    body = request.get_json(silent=True) or {}
+    if body.get('password') != os.environ.get('ADMIN_PASSWORD'):
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
     try:
         client = supabase_db.get_client()
