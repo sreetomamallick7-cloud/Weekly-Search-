@@ -2291,6 +2291,7 @@ function TrendsModule() {
   const [activeTab, setActiveTab] = useState('top-terms');
 
   const [soloTerm, setSoloTerm] = useState(null);
+  const [soloCategory, setSoloCategory] = useState(null);
   const instanceRef = useRef(null);
 
   const [viewMode, setViewMode] = useState('table');
@@ -2721,14 +2722,21 @@ function TrendsModule() {
     
     const datasets = top8Cats.map((catName, idx) => {
       const data = mCats[catName].map(w => w.searches);
+      const color = `hsl(${idx * 45}, 70%, 50%)`;
+      const fillVal = `hsla(${idx * 45}, 70%, 60%, 0.3)`;
+      
+      const isSolo = soloCategory === catName;
+      const isFaded = soloCategory !== null && !isSolo;
+
       return {
         label: catName,
         data,
-        fill: true,
-        backgroundColor: `hsla(${idx * 45}, 70%, 60%, 0.3)`,
-        borderColor: `hsl(${idx * 45}, 70%, 50%)`,
+        fill: isSolo ? true : (soloCategory === null ? true : false),
+        backgroundColor: isSolo ? fillVal : (soloCategory === null ? fillVal : 'rgba(0,0,0,0)'),
+        borderColor: isSolo ? color : (soloCategory === null ? color : 'rgba(156, 163, 175, 0.1)'),
+        borderWidth: isSolo ? 3 : (soloCategory === null ? 2 : 1),
         tension: 0.1,
-        pointRadius: 3,
+        pointRadius: isSolo ? 4 : (soloCategory === null ? 3 : 0),
         spanGaps: false
       };
     });
@@ -2739,14 +2747,19 @@ function TrendsModule() {
           return acc + (mCats[catName][wi]?.searches || 0);
         }, 0);
       });
+
+      const isSolo = soloCategory === 'Other';
+      const isFaded = soloCategory !== null && !isSolo;
+
       datasets.push({
         label: 'Other',
         data: otherData,
-        fill: true,
-        backgroundColor: 'rgba(156, 163, 175, 0.3)',
-        borderColor: '#9ca3af',
+        fill: isSolo ? true : (soloCategory === null ? true : false),
+        backgroundColor: isSolo ? 'rgba(156, 163, 175, 0.3)' : (soloCategory === null ? 'rgba(156, 163, 175, 0.3)' : 'rgba(0,0,0,0)'),
+        borderColor: isSolo ? '#9ca3af' : (soloCategory === null ? '#9ca3af' : 'rgba(156, 163, 175, 0.1)'),
+        borderWidth: isSolo ? 3 : (soloCategory === null ? 2 : 1),
         tension: 0.1,
-        pointRadius: 3,
+        pointRadius: isSolo ? 4 : (soloCategory === null ? 3 : 0),
         spanGaps: false
       });
     }
@@ -2777,11 +2790,18 @@ function TrendsModule() {
         },
         scales: {
           x: { grid: { display: false } },
-          y: { stacked: true, grid: { color: '#f3f4f6' } }
+          y: { stacked: soloCategory === null, grid: { color: '#f3f4f6' } }
+        },
+        onClick: (event, elements) => {
+          if (elements.length === 0) return;
+          const clickedDatasetIndex = elements[0].datasetIndex;
+          const clickedCategory = clickedDatasetIndex < top8Cats.length ? top8Cats[clickedDatasetIndex] : 'Other';
+          if (!clickedCategory) return;
+          setSoloCategory(prev => prev === clickedCategory ? null : clickedCategory);
         }
       }
     };
-  }, [activeTab, JSON.stringify(materialData)]);
+  }, [activeTab, JSON.stringify(materialData), soloCategory]);
 
   const GROUPS = [
     { label: 'Top 1–10',  start: 0  },
@@ -3248,7 +3268,83 @@ function TrendsModule() {
               </Card>
 
               <Card title="Category Search share trend" badge="Top 8 categories + Other" className="lg:col-span-2">
+                <div style={{ display:'flex', flexWrap:'wrap', gap:'6px', marginBottom:'12px' }}>
+                  {top8Cats.map((catName, idx) => {
+                    const color = `hsl(${idx * 45}, 70%, 50%)`;
+                    const isSolo = soloCategory === catName;
+                    const isFaded = soloCategory !== null && !isSolo;
+                    return (
+                      <button
+                        key={catName}
+                        onClick={() => setSoloCategory(prev => prev === catName ? null : catName)}
+                        style={{
+                          display:        'flex',
+                          alignItems:     'center',
+                          gap:            '5px',
+                          padding:        '4px 10px',
+                          borderRadius:   '20px',
+                          fontSize:       '11px',
+                          fontWeight:     '500',
+                          cursor:         'pointer',
+                          border:         `0.5px solid ${isSolo ? color : color + '55'}`,
+                          background:     isSolo ? `hsla(${idx * 45}, 70%, 60%, 0.1)` : 'white',
+                          color:          isSolo ? color : '#4b5563',
+                          opacity:        isFaded ? 0.35 : 1,
+                          transition:     'all 0.15s',
+                        }}
+                      >
+                        <span style={{
+                          width: '8px', height: '8px',
+                          borderRadius: '50%',
+                          background: color,
+                          flexShrink: 0,
+                        }} />
+                        <span>{catName}</span>
+                      </button>
+                    );
+                  })}
+                  {otherCats.length > 0 && (() => {
+                    const isSolo = soloCategory === 'Other';
+                    const isFaded = soloCategory !== null && !isSolo;
+                    return (
+                      <button
+                        key="Other"
+                        onClick={() => setSoloCategory(prev => prev === 'Other' ? null : 'Other')}
+                        style={{
+                          display:        'flex',
+                          alignItems:     'center',
+                          gap:            '5px',
+                          padding:        '4px 10px',
+                          borderRadius:   '20px',
+                          fontSize:       '11px',
+                          fontWeight:     '500',
+                          cursor:         'pointer',
+                          border:         `0.5px solid ${isSolo ? '#9ca3af' : '#9ca3af55'}`,
+                          background:     isSolo ? 'rgba(156, 163, 175, 0.1)' : 'white',
+                          color:          isSolo ? '#4b5563' : '#4b5563',
+                          opacity:        isFaded ? 0.35 : 1,
+                          transition:     'all 0.15s',
+                        }}
+                      >
+                        <span style={{
+                          width: '8px', height: '8px',
+                          borderRadius: '50%',
+                          background: '#9ca3af',
+                          flexShrink: 0,
+                        }} />
+                        <span>Other</span>
+                      </button>
+                    );
+                  })()}
+                </div>
+
                 <div style={{ height: 320 }}><canvas ref={catsRef} /></div>
+
+                <p className="text-xs text-gray-400 text-center mt-2">
+                  {soloCategory
+                    ? `Showing: "${soloCategory}" — click again to reset`
+                    : 'Click a category pill or line to isolate · stacked view shows overall search share'}
+                </p>
               </Card>
             </div>
           )}
