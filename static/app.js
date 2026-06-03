@@ -498,12 +498,140 @@ function Layer2({ layer2 }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // LAYER 1 (unchanged below – full copy kept for single-file deploy)
 // ─────────────────────────────────────────────────────────────────────────────
-function HBarChart2(props) { return <HBarChart {...props} />; } // alias
+function ClusterRow({ c, onDrill }) {
+  const [open, setOpen] = React.useState(false);
+
+  const hasConvDelta  = c.conv_delta != null;
+  const hasSrchDelta  = c.searches_delta != null;
+  const isZeroConv    = c.orders === 0 && c.searches >= 500;
+  const convUp        = (c.conv_delta || 0) >= 0;
+  const srchUp        = (c.searches_delta || 0) >= 0;
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+
+      {/* ── Header row (always visible) ── */}
+      <div
+        className="flex items-start justify-between px-4 py-3
+                   bg-gray-50 cursor-pointer hover:bg-indigo-50
+                   transition-colors"
+        onClick={() => setOpen(o => !o)}
+      >
+        {/* Left: name + zero-conv badge */}
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-semibold text-sm text-gray-800">
+            {c.cluster}
+          </span>
+          {isZeroConv && (
+            <span className="text-xs px-2 py-0.5 rounded-full
+                             bg-rose-100 text-rose-700
+                             border border-rose-200 font-medium
+                             whitespace-nowrap">
+              0 orders
+            </span>
+          )}
+        </div>
+
+        {/* Right: metrics */}
+        <div className="flex items-center gap-5 ml-4 flex-shrink-0">
+
+          {/* Searches + MoM */}
+          <div className="text-right">
+            <div className="text-xs font-semibold text-gray-700">
+              {fmt(c.searches)}
+            </div>
+            {hasSrchDelta && (
+              <div className={`text-xs font-semibold
+                ${srchUp ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {srchUp ? '▲' : '▼'}
+                {srchUp ? '+' : ''}{c.searches_delta}%
+              </div>
+            )}
+            <div className="text-xs text-gray-400">searches</div>
+          </div>
+
+          {/* Conversion rate + conv delta */}
+          <div className="text-right">
+            <div className={`text-xs font-semibold
+              ${c.conv_rate > 0 ? 'text-gray-700' : 'text-rose-500'}`}>
+              {c.conv_rate.toFixed(2)}%
+            </div>
+            {hasConvDelta && (
+              <div className={`text-xs font-semibold
+                ${convUp ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {convUp ? '+' : ''}{c.conv_delta.toFixed(3)}pp
+              </div>
+            )}
+            <div className="text-xs text-gray-400">conv rate</div>
+          </div>
+
+          {/* Term count */}
+          <div className="text-right">
+            <div className="text-xs font-semibold text-gray-700">
+              {c.term_count}
+            </div>
+            <div className="text-xs text-gray-400">terms</div>
+          </div>
+
+          {/* Expand / drill controls */}
+          <div className="flex items-center gap-2 ml-1">
+            <button
+              onClick={e => { e.stopPropagation(); onDrill(c); }}
+              className="text-xs text-indigo-600 hover:text-indigo-800
+                         font-medium whitespace-nowrap"
+            >
+              drill →
+            </button>
+            <span className="text-gray-400 text-xs">
+              {open ? '▲' : '▼'}
+            </span>
+          </div>
+
+        </div>
+      </div>
+
+      {/* ── Term pills (visible when expanded) ── */}
+      {open && (
+        <div className="px-4 py-3 flex flex-wrap gap-2
+                        border-t border-gray-100 bg-white">
+          {(c.terms || []).map((t, j) => (
+            <span key={j}
+                  className="bg-indigo-50 text-indigo-700 text-xs
+                             px-2 py-1 rounded-full border
+                             border-indigo-100">
+              {t.term_norm}
+              <span className="text-indigo-400 ml-1">
+                ({fmt(t.searches)})
+              </span>
+            </span>
+          ))}
+          {(c.terms || []).length === 0 && (
+            <span className="text-xs text-gray-400">No terms</span>
+          )}
+        </div>
+      )}
+
+    </div>
+  );
+}
+
+function IntentTierHeader({ label, sublabel }) {
+  return (
+    <div className="flex items-baseline gap-3 mt-2 mb-3">
+      <span className="text-xs font-semibold text-gray-700
+                       uppercase tracking-wider">
+        {label}
+      </span>
+      <span className="text-xs text-gray-400">{sublabel}</span>
+    </div>
+  );
+}
 
 function Layer1({ layer1 }) {
   const [drill, setDrill] = useState(null);
   const [activeSection, setActiveSection] = useState('1.1');
   const [view11, setView11] = useState('volume');
+  const [minSearches15, setMinSearches15] = useState(0);
 
   // Returns 'green' | 'amber' | 'red' for a given rate value
   // thr = the site-average for that metric (decimal 0–1)
@@ -988,36 +1116,244 @@ function Layer1({ layer1 }) {
             )}
           </>
         )}
-        {activeSection === '1.5' && (
-          <Card title="1.5 · Long-Tail Query Identification" insight={d15.insight}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              {[{label:'Long-tail Terms',value:fmt(d15.term_count)},{label:'% of Unique Terms',value:fmtN(d15.pct_of_unique_terms)+'%'},{label:'% of Searches',value:fmtN(d15.pct_of_searches)+'%'},{label:'Avg Conversion',value:fmtN(d15.avg_conversion,3)+'%'}].map((k,i)=>(
-                <div key={i} className="bg-indigo-50 rounded-lg p-3 text-center"><p className="text-2xl font-bold text-indigo-700">{k.value}</p><p className="text-xs text-indigo-500 mt-1">{k.label}</p></div>
-              ))}
-            </div>
-            <DataTable cols={[{key:'term_norm',label:'Term'},{key:'searches',label:'Searches',right:true,render:v=>fmt(v)},{key:'a2c_count',label:'A2C',right:true,render:v=>fmt(v)},{key:'orders',label:'Orders',right:true,render:v=>fmt(v)}]} rows={d15.top_terms||[]} />
-          </Card>
-        )}
-        {activeSection === '1.6' && (
-          <Card title="1.6 · Occasion / Intent-Linked Terms" insight={d16.insight}>
-            <div className="space-y-4">
-              {(d16.clusters||[]).map((cluster,i)=>(
-                <div key={i} className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-2 bg-gray-50 cursor-pointer hover:bg-indigo-50" onClick={()=>setDrill({title:cluster.occasion+' — Terms',terms:cluster.terms||[]})}>
-                    <span className="font-semibold text-sm text-gray-800">{cluster.occasion}</span>
-                    <div className="flex gap-4 text-xs text-gray-500 items-center">
-                      <span className="flex items-center gap-1.5">🔍 {fmt(cluster.searches)} {hasBoth && <GrowthPill v={cluster.growth} />}</span>
-                      <span>🛒 {fmt(cluster.a2c_count)}</span>
-                      <span>✅ {fmt(cluster.orders)}</span>
-                      <span className="text-indigo-600 text-xs font-semibold ml-2">drill →</span>
-                    </div>
-                  </div>
-                  <div className="px-4 py-2 flex flex-wrap gap-2">{(cluster.terms||[]).map((t,j)=><span key={j} className="bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded-full">{t.term_norm} ({fmt(t.searches)})</span>)}</div>
+        {activeSection === '1.5' && (() => {
+          const d15 = layer1?.['1.5'] || {};
+          const hasShareShift = d15.share_shift != null;
+          const shiftUp       = (d15.share_shift || 0) > 0;
+          const zeroCarts     = d15.zero_cart_terms || [];
+          const topTerms      = d15.top_terms || [];
+
+          // Apply minimum searches filter
+          const filteredZeroCarts = zeroCarts.filter(t => t.searches >= minSearches15);
+          const filteredTopTerms  = topTerms.filter(t => t.searches >= minSearches15);
+
+          return (
+            <>
+              {/* ── Minimum searches terms filter ── */}
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-3 mb-4 flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                  Filter by minimum searches:
+                </span>
+                <div className="flex gap-2">
+                  {[0, 21, 50, 100].map(val => (
+                    <button
+                      key={val}
+                      onClick={() => setMinSearches15(val)}
+                      className={`text-xs px-3 py-1 rounded-full font-semibold border transition-all duration-200
+                        ${minSearches15 === val
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                          : 'bg-white border-gray-300 text-gray-600 hover:border-indigo-400 hover:text-indigo-600'
+                        }`}
+                    >
+                      {val === 0 ? 'All' : `≥ ${val}`}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </Card>
-        )}
+              </div>
+
+              {/* ── PART A — SHARE SHIFT HEADLINE ── */}
+              {hasShareShift && (
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-xl
+                                 border mb-4 text-sm font-medium
+                  ${Math.abs(d15.share_shift) < 1
+                    ? 'bg-gray-50 border-gray-200 text-gray-600'
+                    : shiftUp
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}>
+                  <span>
+                    Long-tail share of total searches:
+                    <strong className="mx-1">{d15.pct_of_searches_prev}%</strong>
+                    last week →
+                    <strong className="mx-1">{d15.pct_of_searches}%</strong>
+                    this week
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold
+                                    border ml-auto
+                    ${Math.abs(d15.share_shift) < 1
+                      ? 'bg-gray-100 text-gray-500 border-gray-200'
+                      : shiftUp
+                        ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
+                        : 'bg-rose-100 text-rose-700 border-rose-300'
+                    }`}>
+                    {shiftUp ? '+' : ''}{d15.share_shift}pp MoM
+                  </span>
+                </div>
+              )}
+
+              {/* ── PART B — ACTION CARD (zero-cart terms) ── */}
+              <Card
+                title="1.5 · High intent, zero cart — catalog & relevance gaps"
+                badge={`${filteredZeroCarts.length} terms`}
+                insightType="danger"
+                insight={
+                  filteredZeroCarts.length > 0
+                    ? `These users know exactly what they want but left empty-handed.
+                       Low visit rate = search isn't surfacing the right results.
+                       Good visit rate + 0 A2C = the product doesn't exist in catalog
+                       or price point is wrong.`
+                    : null
+                }
+              >
+                {filteredZeroCarts.length > 0
+                  ? (
+                    <DataTable
+                      maxH={360}
+                      cols={[
+                        { key: 'term_norm',   label: 'Term' },
+                        { key: 'category',    label: 'Category' },
+                        { key: 'searches',    label: 'Searches',
+                          right: true, render: v => fmt(v) },
+                        { key: 'visit_rate',  label: 'Visit %',
+                          right: true,
+                          render: v => {
+                            // visit_rate tells you WHERE the funnel breaks:
+                            // low = search relevance issue, ok = catalog gap
+                            const pct   = (v * 100).toFixed(1);
+                            const color = v >= 0.4
+                              ? 'text-amber-600'   // visits happening = catalog gap
+                              : 'text-rose-600';   // not even clicking = relevance gap
+                            return (
+                              <span className={`font-semibold ${color}`}>
+                                {pct}%
+                              </span>
+                            );
+                          }
+                        },
+                      ]}
+                      rows={filteredZeroCarts}
+                    />
+                  )
+                  : (
+                    <p className="text-sm text-gray-400 py-6 text-center">
+                      No long-tail terms matching search criteria have zero cart-adds this period.
+                    </p>
+                  )
+                }
+              </Card>
+
+              {/* ── PART C — REFERENCE CARD (metrics + top terms) ── */}
+              <Card
+                title="1.5 · Long-tail overview — reference"
+                badge="Not action items"
+              >
+                {/* Summary metric tiles */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  {[
+                    { label: 'Long-tail terms',     value: fmt(d15.term_count) },
+                    { label: '% of unique terms',   value: fmtN(d15.pct_of_unique_terms) + '%' },
+                    { label: '% of total searches', value: fmtN(d15.pct_of_searches) + '%' },
+                    { label: 'Avg conversion',      value: fmtN(d15.avg_conversion, 3) + '%' },
+                  ].map((k, i) => (
+                    <div key={i}
+                         className="bg-indigo-50 rounded-lg p-3 text-center">
+                      <p className="text-xl font-bold text-indigo-700">
+                        {k.value}
+                      </p>
+                      <p className="text-xs text-indigo-500 mt-1">{k.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Top long-tail terms */}
+                <p className="text-xs text-gray-400 mb-2">
+                  Top long-tail terms by search volume this period
+                </p>
+                <DataTable
+                  maxH={280}
+                  cols={[
+                    { key: 'term_norm',  label: 'Term' },
+                    { key: 'category',   label: 'Category' },
+                    { key: 'searches',   label: 'Searches',
+                      right: true, render: v => fmt(v) },
+                    { key: 'a2c_count',  label: 'A2C',
+                      right: true, render: v => fmt(v) },
+                    { key: 'orders',     label: 'Orders',
+                      right: true, render: v => fmt(v) },
+                  ]}
+                  rows={filteredTopTerms}
+                />
+
+                <Insight text={d15.insight} type="info" />
+              </Card>
+            </>
+          );
+        })()}
+        {activeSection === '1.6' && (() => {
+          const d16              = layer1?.['1.6'] || {};
+          const occasionClusters = d16.occasion_clusters || [];
+          const useCaseClusters  = d16.use_case_clusters || [];
+          const hasDeltas        = occasionClusters.some(
+              c => c.searches_delta != null
+          ) || useCaseClusters.some(c => c.searches_delta != null);
+          return (
+            <Card
+              title="1.6 · Intent clusters"
+              badge="Click cluster to expand terms"
+              insight={d16.insight}
+              insightType="info"
+            >
+              {/* ── Tier 1: Occasion intent ──────────────────────────── */}
+              <IntentTierHeader
+                label="Occasion intent"
+                sublabel="When and why they are buying"
+              />
+
+              {occasionClusters.length > 0
+                ? (
+                  <div className="space-y-2 mb-5">
+                    {occasionClusters.map((c, i) => (
+                      <ClusterRow
+                        key={c.cluster}
+                        c={c}
+                        onDrill={c => setDrill({
+                          title: c.cluster + ' — terms',
+                          terms: c.terms || []
+                        })}
+                      />
+                    ))}
+                  </div>
+                )
+                : (
+                  <p className="text-xs text-gray-400 mb-5 py-3 text-center">
+                    No occasion-intent terms found in this period
+                  </p>
+                )
+              }
+
+              {/* ── Tier 2: Use case intent ───────────────────────────── */}
+              <div className="border-t border-gray-200 pt-4">
+                <IntentTierHeader
+                  label="Use case & modifier intent"
+                  sublabel="How they plan to use it or what constraints they have"
+                />
+
+                {useCaseClusters.length > 0
+                  ? (
+                    <div className="space-y-2">
+                      {useCaseClusters.map((c, i) => (
+                        <ClusterRow
+                          key={c.cluster}
+                          c={c}
+                          onDrill={c => setDrill({
+                            title: c.cluster + ' — terms',
+                            terms: c.terms || []
+                          })}
+                        />
+                      ))}
+                    </div>
+                  )
+                  : (
+                    <p className="text-xs text-gray-400 py-3 text-center">
+                      No use-case-intent terms found in this period
+                    </p>
+                  )
+                }
+              </div>
+
+            </Card>
+          );
+        })()}
         {activeSection === '1.9' && (
           <Card title="1.9 · Rising Terms (>20% MoM, ≥200 searches)" insight={d19.insight} insightType="success">
             <DataTable cols={[{key:'term_norm',label:'Term'},{key:'prev_searches',label:'Prev',right:true,render:v=>fmt(v)},{key:'searches',label:'Current',right:true,sortable:true,render:v=>fmt(v)},{key:'growth',label:'Growth',right:true,render:v=><GrowthPill v={v}/>},{key:'a2c_count',label:'A2C',right:true,render:v=>fmt(v)},{key:'category',label:'Category'}]} rows={d19.terms||[]} />

@@ -1,17 +1,8 @@
 import pandas as pd
 import numpy as np
+from category_utils import get_category, OCCASION_CLUSTERS, USE_CASE_CLUSTERS
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
-
-OCCASION_CLUSTERS = {
-    'Wedding':     ['wedding', 'bride', 'bridal', 'shaadi'],
-    'Engagement':  ['engagement', 'propose', 'solitaire'],
-    'Gift':        ['gift', 'gifting'],
-    'Baby/Kids':   ['baby', 'kids', 'child', 'children', 'newborn'],
-    'Anniversary': ['anniversary', 'couple'],
-    'Birthday':    ['birthday', 'bday'],
-    'Festival':    ['festival', 'diwali', 'dhanteras', 'navratri', 'puja', 'rakhi', 'eid', 'christmas'],
-}
 
 def _levenshtein(s1, s2):
     """Simple Levenshtein distance."""
@@ -71,6 +62,82 @@ def _insight_concentration(top10_pct, top_term, top_term_pct):
 # ─── Layer 1 ───────────────────────────────────────────────────────────────────
 
 def run_layer1(df_curr, df_prev):
+    def _build_cluster_rows(df, cluster_dict, tier, df_prev=None):
+        """
+        For each cluster in cluster_dict, aggregate all matching terms
+        from df and return a list of cluster summary dicts.
+        Matching is substring: any keyword appearing anywhere in term_norm.
+        A term can match multiple clusters (multi-cluster assignment).
+        """
+        rows = []
+        for cluster_name, keywords in cluster_dict.items():
+
+            def _match_term(t):
+                t_str = str(t).lower()
+                if cluster_name == "Men's":
+                    for bad in ['women', 'woman', 'engagement', 'ornament', 'consignment', 'shipment']:
+                        if bad in t_str:
+                            return False
+                return any(k in t_str for k in keywords)
+
+            mask = df['term_norm'].apply(_match_term)
+            sub = df[mask].copy()
+            if sub.empty:
+                continue
+
+            searches   = float(sub['searches'].sum())
+            a2c_count  = float(sub['a2c_count'].sum())
+            orders     = float(sub['orders'].sum())
+            term_count = int(len(sub))
+            conv_rate  = round(orders / max(searches, 1) * 100, 3)
+
+            # ── Prev period ────────────────────────────────────────────
+            prev_searches  = None
+            prev_conv_rate = None
+            searches_delta = None   # MoM % change in searches
+            conv_delta     = None   # pp change in conversion rate
+
+            if df_prev is not None and not df_prev.empty:
+                prev_mask = df_prev['term_norm'].apply(_match_term)
+                sub_prev = df_prev[prev_mask]
+                if not sub_prev.empty:
+                    prev_searches  = float(sub_prev['searches'].sum())
+                    prev_orders    = float(sub_prev['orders'].sum())
+                    prev_conv_rate = round(
+                        prev_orders / max(prev_searches, 1) * 100, 3
+                    )
+                    searches_delta = round(
+                        (searches - prev_searches) /
+                        max(prev_searches, 1) * 100, 1
+                    )
+                    conv_delta = round(conv_rate - prev_conv_rate, 3)
+
+            # ── Top terms for drill-down ───────────────────────────────
+            top_terms = (
+                sub.sort_values('searches', ascending=False)
+                .head(15)
+                [['term_norm', 'searches', 'a2c_count', 'orders']]
+                .to_dict(orient='records')
+            )
+
+            rows.append({
+                'cluster':        cluster_name,
+                'tier':           tier,
+                'searches':       searches,
+                'a2c_count':      a2c_count,
+                'orders':         orders,
+                'term_count':     term_count,
+                'conv_rate':      conv_rate,
+                'prev_searches':  prev_searches,
+                'prev_conv_rate': prev_conv_rate,
+                'searches_delta': searches_delta,
+                'conv_delta':     conv_delta,
+                'terms':          top_terms,
+            })
+
+        rows.sort(key=lambda x: x['searches'], reverse=True)
+        return rows
+
     res = {}
     if df_curr is None or df_curr.empty:
         return res
@@ -191,63 +258,141 @@ def run_layer1(df_curr, df_prev):
         
     res['1.3'] = {'chart': chart_13, 'insight': insight_13}
 
-    # -- 1.5 Long-Tail ----------------------------------------------------------
-    lt_df  = df_curr[df_curr['is_long_tail'] == True]
-    hd_df  = df_curr[df_curr['is_long_tail'] == False]
-    lt_s   = lt_df['searches'].sum()
-    hd_s   = hd_df['searches'].sum()
-    lt_conv = _safe_pct(lt_df['orders'].sum(), lt_s)
-    hd_conv = _safe_pct(hd_df['orders'].sum(), hd_s)
-    ratio = round(lt_conv / hd_conv, 2) if hd_conv > 0 else 0
-    direction = 'higher' if lt_conv >= hd_conv else 'lower'
-    intent = 'more purchase-ready' if lt_conv >= hd_conv else 'less purchase-ready'
+    # ── 1.5 Long-Tail Analysis ───────────────────────────────────────
+
+    lt = df_curr[df_curr['is_long_tail'] == True].copy()
+    total_searches_curr = float(df_curr['searches'].sum())
+
+    lt_term_count      = int(len(lt))
+    lt_searches_curr   = float(lt['searches'].sum())
+    lt_pct_of_searches = round(
+        lt_searches_curr / max(total_searches_curr, 1) * 100, 1
+    )
+    lt_pct_of_unique   = round(
+        lt_term_count / max(len(df_curr), 1) * 100, 1
+    )
+    lt_avg_conv        = round(
+        _safe_pct(lt['orders'].sum(), lt_searches_curr), 3
+    )
+
+    # ── Share shift (requires prev period) ──────────────────────────
+    lt_share_shift = None
+    lt_pct_prev    = None
+    if df_prev is not None and not df_prev.empty:
+        lt_prev             = df_prev[df_prev['is_long_tail'] == True]
+        total_searches_prev = float(df_prev['searches'].sum())
+        lt_searches_prev    = float(lt_prev['searches'].sum())
+        lt_pct_prev         = round(
+            lt_searches_prev / max(total_searches_prev, 1) * 100, 1
+        )
+        lt_share_shift = round(lt_pct_of_searches - lt_pct_prev, 1)
+        # Positive = long-tail share growing (intent maturing)
+        # Negative = long-tail share shrinking (more generic browsing)
+
+    # ── Zero-cart terms: high intent, not converting ─────────────────
+    # Threshold: long-tail terms with ≥200 searches and 0 add-to-cart.
+    # 200 is a floor to exclude statistically insignificant terms.
+    # visit_rate is included so the frontend can show WHERE the
+    # funnel breaks (low visit = search not surfacing it;
+    # ok visit + 0 a2c = catalog gap).
+    zero_cart = lt[
+        (lt['a2c_count'] == 0) & (lt['searches'] >= 200)
+    ].copy()
+
+    zero_cart['visit_rate'] = (
+        zero_cart['search_visits'] /
+        zero_cart['searches'].replace(0, np.nan)
+    ).fillna(0).round(4)
+
+    zero_cart_records = (
+        zero_cart
+        .sort_values('searches', ascending=False)
+        .head(30)
+        [['term_norm', 'category', 'searches', 'visit_rate']]
+        .to_dict(orient='records')
+    )
+
+    # ── Top long-tail terms (reference list) ─────────────────────────
+    top_lt = (
+        lt.sort_values('searches', ascending=False)
+        .head(30)
+        [['term_norm', 'searches', 'a2c_count', 'orders', 'category']]
+        .to_dict(orient='records')
+    )
+
+    # ── Insight ──────────────────────────────────────────────────────
+    shift_text = ''
+    if lt_share_shift is not None:
+        direction = 'up' if lt_share_shift > 0 else 'down'
+        shift_text = (
+            f" Long-tail share of searches moved {direction} "
+            f"{abs(lt_share_shift):.1f}pp MoM "
+            f"({lt_pct_prev}% → {lt_pct_of_searches}%)."
+        )
+    zc_text = (
+        f" {len(zero_cart)} long-tail terms with ≥200 searches have zero "
+        f"add-to-cart — these are your highest-priority catalog or "
+        f"relevance gaps." if len(zero_cart) > 0 else ''
+    )
+
     res['1.5'] = {
-        'term_count': int(len(lt_df)),
-        'searches': float(lt_s),
-        'pct_of_unique_terms': _safe_pct(len(lt_df), len(df_curr)),
-        'pct_of_searches':     _safe_pct(lt_s, total),
-        'avg_visit_rate':   round(lt_df['search_visits'].sum() / lt_s, 4) if lt_s > 0 else 0,
-        'avg_conversion':   round(lt_conv, 3),
-        'head_avg_conversion': round(hd_conv, 3),
-        'top_terms': lt_df.sort_values('searches', ascending=False).head(20)[['term_norm','searches','a2c_count','orders']].to_dict(orient='records'),
-        'insight': (f"Long-tail queries (3+ words) represent {_safe_pct(len(lt_df), len(df_curr)):.1f}% of unique terms "
-                   f"but {_safe_pct(lt_s, total):.1f}% of total searches. Their avg conversion is {ratio}x {direction} "
-                   f"than head terms — indicating {intent}.")
+        'term_count':          lt_term_count,
+        'pct_of_unique_terms': lt_pct_of_unique,
+        'pct_of_searches':     lt_pct_of_searches,
+        'pct_of_searches_prev': lt_pct_prev,          # None if no prev
+        'share_shift':         lt_share_shift,          # None if no prev
+        'avg_conversion':      lt_avg_conv,
+        'zero_cart_terms':     zero_cart_records,       # NEW
+        'zero_cart_count':     int(len(zero_cart)),     # NEW
+        'top_terms':           top_lt,
+        'insight': (
+            f"{lt_term_count} long-tail terms represent "
+            f"{lt_pct_of_searches}% of total searches "
+            f"with {lt_avg_conv:.3f}% average conversion."
+            + shift_text + zc_text
+        )
     }
 
-    # -- 1.6 Occasion / Intent Clustering ---------------------------------------
-    rows = []
-    for occasion, keywords in OCCASION_CLUSTERS.items():
-        mask = df_curr['term_norm'].apply(lambda t: any(k in t for k in keywords))
-        sub  = df_curr[mask]
-        if not sub.empty:
-            if df_prev is not None and not df_prev.empty:
-                mask_prev = df_prev['term_norm'].apply(lambda t: any(k in t for k in keywords))
-                sub_prev = df_prev[mask_prev]
-                prev_s = float(sub_prev['searches'].sum())
-                growth = round(((sub['searches'].sum() - prev_s) / (prev_s + 1)) * 100, 2)
-            else:
-                prev_s = 0.0
-                growth = None
+    # ── 1.6 Intent Clusters ──────────────────────────────────────────
 
-            rows.append({
-                'occasion': occasion,
-                'term_count': int(len(sub)),
-                'searches':   float(sub['searches'].sum()),
-                'prev_searches': prev_s,
-                'growth': growth,
-                'a2c_count':  float(sub['a2c_count'].sum()),
-                'orders': float(sub['orders'].sum()),
-                'terms': sub.sort_values('searches', ascending=False).head(10)[['term_norm','searches']].to_dict(orient='records')
-            })
-    rows.sort(key=lambda x: x['searches'], reverse=True)
-    top_occ = rows[0] if rows else None
-    total_occ_terms = sum(r['term_count'] for r in rows)
-    total_occ_s = sum(r['searches'] for r in rows)
+    occasion_rows  = _build_cluster_rows(
+        df_curr, OCCASION_CLUSTERS,  'occasion',  df_prev
+    )
+    use_case_rows  = _build_cluster_rows(
+        df_curr, USE_CASE_CLUSTERS,  'use_case',  df_prev
+    )
+
+    # Summary counts for insight
+    total_intent_searches = float(
+        df_curr['searches'].sum() if len(occasion_rows) + len(use_case_rows) > 0
+        else 0
+    )
+    all_rows = occasion_rows + use_case_rows
+
+    top_cluster    = all_rows[0] if all_rows else None
+    zero_conv_clusters = [
+        r for r in all_rows
+        if r['orders'] == 0 and r['searches'] >= 500
+    ]
+
     res['1.6'] = {
-        'clusters': rows,
-        'insight': (f"Occasion-linked searches span {total_occ_terms} terms and {int(total_occ_s):,} total searches. "
-                   f"'{top_occ['occasion']}' leads with {int(top_occ['searches']):,} searches." if top_occ else "No occasion-linked terms detected.")
+        'occasion_clusters':  occasion_rows,
+        'use_case_clusters':  use_case_rows,
+        'insight': (
+            f"Found {len(occasion_rows)} occasion clusters and "
+            f"{len(use_case_rows)} use-case clusters. "
+            + (
+                f"'{top_cluster['cluster']}' leads by volume with "
+                f"{int(top_cluster['searches']):,} searches "
+                f"({top_cluster['conv_rate']:.3f}% conversion). "
+                if top_cluster else ''
+            )
+            + (
+                f"{len(zero_conv_clusters)} cluster(s) have ≥500 searches "
+                f"but zero orders — catalog or relevance gaps."
+                if zero_conv_clusters else ''
+            )
+        )
     }
 
 

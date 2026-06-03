@@ -154,10 +154,33 @@ def process_period_files(search_df, a2c_df):
     # Fill NAs
     merged.fillna(0, inplace=True)
     
-    # Assign categories and long-tail check
     merged['category'] = merged['term_norm'].apply(get_category)
-    merged['is_long_tail'] = merged['term_norm'].apply(lambda x: len(str(x).split()) >= 3)
     
+    from category_utils import SPECIFICITY_MARKERS
+
+    # Dynamic threshold: median search volume of this upload.
+    # Long-tail must be below-median volume — this adapts to every
+    # dataset without any hardcoded number.
+    _median_searches = float(merged['searches'].median()) if not merged.empty else 0.0
+
+    def _is_long_tail(row):
+        term  = str(row['term_norm']).lower()
+        words = term.split()
+        # Condition 1: volume below dataset median
+        below_median = row['searches'] < _median_searches
+        # Condition 2: word count OR a jewellery specificity marker
+        specific = (
+            len(words) >= 3 or
+            any(m in words for m in SPECIFICITY_MARKERS)
+        )
+        return bool(below_median and specific)
+
+    merged['is_long_tail'] = merged.apply(_is_long_tail, axis=1) if not merged.empty else pd.Series(dtype=bool)
+
+    # Also store median_searches on df so layer1 logic can reference it
+    # without recomputing. Add as a df attribute (not a column):
+    merged.attrs['median_searches'] = _median_searches
+
     return merged
 
 @app.route('/')
@@ -407,12 +430,9 @@ def admin_upload_week():
                 'is_long_tail': bool(row.get('is_long_tail', False)),
             })
 
-        # Bulk insert in chunks of 500 (Supabase payload limit)
-        CHUNK = 500
-        for i in range(0, len(records), CHUNK):
-            client.table('search_terms_weekly').insert(
-                records[i:i + CHUNK]
-            ).execute()
+        # Bulk insert in a single request to avoid network overhead and Vercel serverless timeouts
+        if records:
+            client.table('search_terms_weekly').insert(records).execute()
 
         return jsonify({
             'status':   'success',
